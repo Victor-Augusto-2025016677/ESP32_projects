@@ -1,0 +1,2 @@
+Mova a pasta "libraries" para o local: "C:\Users\victo\Documents\Arduino\libraries" 
+Para a devida leitura e uso das bibliotecas

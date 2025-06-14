@@ -1,0 +1,1 @@
+Não é necessário baixar, na pasta libraries, elas já estão baixadas, somente siga o "LEIA_ME" dentro dela e poderá compilar o código

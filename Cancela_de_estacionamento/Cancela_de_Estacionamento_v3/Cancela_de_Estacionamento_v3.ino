@@ -44,11 +44,12 @@
         -Google Drive: https://drive.google.com/drive/folders/1Bw55YGem5pyQbbGkTbvjttV0F66AnHDx?usp=sharing
 */
 
-#include <Arduino.h> //Somente necessário para o platformio, caso contrario, não é necessário, pois o Arduino IDE já inclui essa biblioteca por padrão.
+//#include <Arduino.h> //Somente necessário para o platformio, caso contrario, não é necessário, pois o Arduino IDE já inclui essa biblioteca por padrão.
 #include <NTPClient.h> //Cliente NTP para sincronização de tempo
 #include <WiFi.h> //Biblioteca para conexão Wi-Fi
 #include <WiFiUdp.h> //Biblioteca para comunicação UDP, necessária para o NTPClient
 #include <time.h> // Biblioteca para manipulação de tempo
+#include <ESP32Servo.h> // Biblioteca para controle de servo motor
 
 // Definição das credenciais de Wi-Fi
 const char *ssid     = "Wifi2";
@@ -63,6 +64,9 @@ Para que a esp conecte-se a esta rede wifi, crie um hotspot com as seguintes con
     - Banda: 2.4GHz
 
 */
+
+//Servo motor para controle da cancela
+Servo ServoCancela; // Criação do objeto Servo para controle da cancela
 
 // Inicialização do cliente NTP
 WiFiUDP ntpUDP;
@@ -79,6 +83,12 @@ const byte ledVerde = 27;
 const byte ledVermelho = 26;
 const byte ledImpressao = 14;
 const byte buzzer = 12;
+const byte servo = 21;
+
+//Variaveis servo
+const int posicaoAberta = 500; // Posição do servo motor para a cancela aberta
+const int posicaoFechada = 1495; // Posição do servo motor para a cancela fechada
+
 
 // Variáveis para controle de tempo de espera para o timeout
 unsigned long tempoEspera = 0; // Variável para armazenar o tempo de espera, inicia zerada. 
@@ -127,9 +137,12 @@ void atualizarDataHora()
 
 void FecharCancela() // Esta função é usada para fechar a cancela
 {
+    //ServoCancela.attach(servo, 395, 2595); // Anexa o servo motor ao pino definido
     digitalWrite(ledImpressao, LOW); // Desliga o LED de impressão
     digitalWrite(ledVerde, LOW); // Desliga o LED verde
     digitalWrite(ledVermelho, HIGH); // Liga o LED vermelho
+    ServoCancela.writeMicroseconds(posicaoFechada); // Define a posição do servo motor para fechar a cancela
+    //ServoCancela.detach(); // Desanexa o servo motor para evitar consumo desnecessário de energia
     Serial.println("Cancela fechada.\n"); // Mensagem de confirmação de fechamento da cancela
     delay(DELAY_CANCELA); // Mantém a cancela fechada por 0,5 segundo
     cancelaAberta = false; // Define o estado da cancela como fechada
@@ -169,12 +182,15 @@ void ImprimirTicket() //Esta função simula a impressão do ticket de entrada
 
 void AbrirCancela() //Esta função é usada para abrir a cancela
 {
+    //ServoCancela.attach(servo, 395, 2595); // Anexa o servo motor ao pino definido
     Serial.println("Abrindo cancela...\n");
     digitalWrite(ledImpressao, LOW); // Desliga o LED de impressão
     digitalWrite(ledVermelho, LOW); // Desliga o LED vermelho
     digitalWrite(ledVerde, HIGH); // Liga o LED verde
+    ServoCancela.writeMicroseconds(posicaoAberta); // Define a posição do servo motor para abrir a cancela
+    //ServoCancela.detach(); // Desanexa o servo motor para evitar consumo desnecessário de energia
     Serial.println("Cancela aberta.\n"); // Mensagem de confirmação de abertura da cancela
-    delay(DELAY_CANCELA); // Mantém a cancela aberta por 0,5 segundo
+    delay(DELAY_CANCELA); // Delay de 0,5 segundo para simular a abertura da cancela
     cancelaAberta = true; // Define o estado da cancela como aberta
 }
 
@@ -256,24 +272,34 @@ void setup() //Inicia o setup do sistema
     pinMode(ledImpressao, OUTPUT);
     pinMode(buzzer, OUTPUT);
 
+    // Conexão com a rede Wi-Fi
+    WiFi.begin(ssid, password);
+    while ( WiFi.status() != WL_CONNECTED ) 
+    {
+    delay ( 500 );
+    Serial.print ( "." );
+    }
+
+    //inicia o tempo do cliente NTP
+    timeClient.begin();
+
+    //Servo motor
+    ServoCancela.setPeriodHertz(50);
+    ServoCancela.attach(servo, posicaoAberta, posicaoFechada);
+    ServoCancela.writeMicroseconds(posicaoAberta); // Cancela aberta
+    delay(2000);
+    ServoCancela.writeMicroseconds(posicaoFechada); // Cancela fechada
+    delay(2000);
+
     //Define o estado inicial como fechado
     digitalWrite(ledImpressao, LOW);
     digitalWrite(ledVerde, LOW);
     digitalWrite(ledVermelho, HIGH);
+    ServoCancela.writeMicroseconds(posicaoFechada);
     cancelaAberta = false;
     
     //Mensagem que o sistema iniciou, infelizmente nunca é vista, pois até abrir o monitor serial, isto já foi executado
     Serial.println("Sistema de Controle de Cancela Iniciado.");
-
-    // Conexão com a rede Wi-Fi
-    WiFi.begin(ssid, password);
-    while ( WiFi.status() != WL_CONNECTED ) {
-    delay ( 500 );
-    Serial.print ( "." );
-  }
-
-  timeClient.begin();
-
 }
 
 void loop() //Função de loop continuo
