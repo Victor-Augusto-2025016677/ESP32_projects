@@ -40,10 +40,36 @@
 
     Links:
         -Wokwi Projeto: https://wokwi.com/projects/433687986627978241
-        -GitHub: 
+        -GitHub: https://github.com/Victor-Augusto-2025016677/ESP32_projects.git
+        -Google Drive: https://drive.google.com/drive/folders/1Bw55YGem5pyQbbGkTbvjttV0F66AnHDx?usp=sharing
 */
 
-//#include <Arduino.h> //Somente necessário para o platformio, caso contrario, não é necessário, pois o Arduino IDE já inclui essa biblioteca por padrão.
+#include <Arduino.h> //Somente necessário para o platformio, caso contrario, não é necessário, pois o Arduino IDE já inclui essa biblioteca por padrão.
+#include <NTPClient.h> //Cliente NTP para sincronização de tempo
+#include <WiFi.h> //Biblioteca para conexão Wi-Fi
+#include <WiFiUdp.h> //Biblioteca para comunicação UDP, necessária para o NTPClient
+#include <time.h> // Biblioteca para manipulação de tempo
+
+// Definição das credenciais de Wi-Fi
+const char *ssid     = "Wifi2";
+const char *password = "01010101";
+
+/*
+Para que a esp conecte-se a esta rede wifi, crie um hotspot com as seguintes configurações:
+
+    - Nome da rede: Wifi2
+    - Senha: 01010101
+    - Tipo de segurança: WPA2-PSK
+    - Banda: 2.4GHz
+
+*/
+
+// Inicialização do cliente NTP
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", -3 * 3600); // UTC-3
+
+String dataAtual; // Variável para armazenar a data atual
+String horaAtual; // Variável para armazenar a hora atual
 
 // Definição dos pinos utilizados
 const byte botao = 25;
@@ -83,6 +109,22 @@ bool cancelaAberta = false; // Variável para controle do estado da cancela
 
 //Inicio das funções
 
+void atualizarDataHora() 
+{
+  timeClient.update(); // Atualiza o cliente NTP para obter a hora atual
+
+  time_t rawTime = timeClient.getEpochTime(); // Obtém o tempo atual em segundos desde 1 de janeiro de 1970
+  struct tm * timeInfo = localtime(&rawTime); // Converte o tempo bruto para a estrutura tm, que contém informações sobre data e hora
+
+  char dataBuffer[11]; // Formato: dd/mm/yyyy
+  char horaBuffer[9]; // Formato: hh:mm:ss
+  strftime(dataBuffer, sizeof(dataBuffer), "%d/%m/%Y", timeInfo); // Formata a data
+  strftime(horaBuffer, sizeof(horaBuffer), "%H:%M:%S", timeInfo); // Formata a hora
+
+  dataAtual = String(dataBuffer); // Converte o buffer de data para String
+  horaAtual = String(horaBuffer); // Converte o buffer de hora para String
+}
+
 void FecharCancela() // Esta função é usada para fechar a cancela
 {
     digitalWrite(ledImpressao, LOW); // Desliga o LED de impressão
@@ -100,9 +142,9 @@ void aviso() //Função para fechar a cancela com avisos sonoros.
   for (int i = 0; i < SEGUNDOS_AVISO_BUZZER; i++) 
   {
     digitalWrite(buzzer, HIGH); // Liga o buzzer
-    delay(delaybuzzer);                 // Espera 500ms
+    delay(delaybuzzer); // Espera 500ms
     digitalWrite(buzzer, LOW);  // Desliga o buzzer
-    delay(delaybuzzer);                 // Espera 500ms
+    delay(delaybuzzer); // Espera 500ms
   }
 
   FecharCancela();
@@ -110,13 +152,14 @@ void aviso() //Função para fechar a cancela com avisos sonoros.
 
 void ImprimirTicket() //Esta função simula a impressão do ticket de entrada
 {
+    atualizarDataHora();
     Serial.println("Imprimindo ticket...\n"); 
     digitalWrite(ledImpressao, HIGH);
     delay(DELAY_IMPRESSAO);
     Serial.println("| ==================== |"); //delimitação estética do ticket
-    Serial.println("| Ticket de Entrada |");
-    Serial.println("| Data: " + String(__DATE__)); //Data da emissão do ticket
-    Serial.println("| Hora: " + String(__TIME__)); //Hora da emissão do ticket
+    Serial.println("| Ticket de Entrada");
+    Serial.println("| Data: " + dataAtual); //Data da emissão do ticket
+    Serial.println("| Hora: " + horaAtual); //Hora da emissão do ticket
     Serial.println("| Carro N°: " + String(++NumeroCarros)); //Nº do carro
     Serial.println("| ==================== |\n");
     delay(DELAY_IMPRESSAO); //1500ms +1500ms = 3 segundos de impressão, como solicitado 
@@ -222,6 +265,15 @@ void setup() //Inicia o setup do sistema
     //Mensagem que o sistema iniciou, infelizmente nunca é vista, pois até abrir o monitor serial, isto já foi executado
     Serial.println("Sistema de Controle de Cancela Iniciado.");
 
+    // Conexão com a rede Wi-Fi
+    WiFi.begin(ssid, password);
+    while ( WiFi.status() != WL_CONNECTED ) {
+    delay ( 500 );
+    Serial.print ( "." );
+  }
+
+  timeClient.begin();
+
 }
 
 void loop() //Função de loop continuo
@@ -288,3 +340,4 @@ void loop() //Função de loop continuo
                 }
 
 }
+
