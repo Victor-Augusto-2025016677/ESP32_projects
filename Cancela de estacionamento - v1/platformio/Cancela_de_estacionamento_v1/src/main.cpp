@@ -40,7 +40,8 @@
 
     Links:
         -Wokwi Projeto: https://wokwi.com/projects/433687986627978241
-        -GitHub: 
+        -GitHub: https://github.com/Victor-Augusto-2025016677/ESP32_projects/tree/5e74d7d0e79b66ef3666be97c9e85a4bfc22585a/Cancela%20de%20estacionamento%20-%20v1
+        -Google Drive: https://drive.google.com/drive/folders/1Bw55YGem5pyQbbGkTbvjttV0F66AnHDx?usp=sharing
 */
 
 #include <Arduino.h> //Somente necessário para o platformio, caso contrario, não é necessário, pois o Arduino IDE já inclui essa biblioteca por padrão.
@@ -100,9 +101,9 @@ void aviso() //Função para fechar a cancela com avisos sonoros.
   for (int i = 0; i < SEGUNDOS_AVISO_BUZZER; i++) 
   {
     digitalWrite(buzzer, HIGH); // Liga o buzzer
-    delay(delaybuzzer);                 // Espera 500ms
+    delay(delaybuzzer); // Espera 500ms
     digitalWrite(buzzer, LOW);  // Desliga o buzzer
-    delay(delaybuzzer);                 // Espera 500ms
+    delay(delaybuzzer); // Espera 500ms
   }
 
   FecharCancela();
@@ -114,7 +115,7 @@ void ImprimirTicket() //Esta função simula a impressão do ticket de entrada
     digitalWrite(ledImpressao, HIGH);
     delay(DELAY_IMPRESSAO);
     Serial.println("| ==================== |"); //delimitação estética do ticket
-    Serial.println("| Ticket de Entrada |");
+    Serial.println("| Ticket de Entrada");
     Serial.println("| Data: " + String(__DATE__)); //Data da emissão do ticket
     Serial.println("| Hora: " + String(__TIME__)); //Hora da emissão do ticket
     Serial.println("| Carro N°: " + String(++NumeroCarros)); //Nº do carro
