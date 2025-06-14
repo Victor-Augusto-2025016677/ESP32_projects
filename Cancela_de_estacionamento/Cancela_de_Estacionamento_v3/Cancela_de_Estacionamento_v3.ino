@@ -39,9 +39,9 @@
             - 10k ohms - 3
 
     Links:
-        -Wokwi Projeto: https://wokwi.com/projects/433687986627978241
+        -Wokwi Projeto: https://wokwi.com/projects/433713661752360961
         -GitHub: https://github.com/Victor-Augusto-2025016677/ESP32_projects.git
-        -Google Drive: https://drive.google.com/drive/folders/1Bw55YGem5pyQbbGkTbvjttV0F66AnHDx?usp=sharing
+        -Google Drive: https://drive.google.com/drive/folders/1OPvoezRb5vQTr6jSUmA1skzAAMnG0p6l?usp=drive_link
 */
 
 //#include <Arduino.h> //Somente necessário para o platformio, caso contrario, não é necessário, pois o Arduino IDE já inclui essa biblioteca por padrão.
