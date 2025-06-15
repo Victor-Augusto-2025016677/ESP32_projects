@@ -35,13 +35,14 @@
         - LEDs - 3 (verde, vermelho e amarelo)
         - Buzzer - 1
         - Fios de conexão
-        - 1 servo motor SG90
+        - servo motor SG90 - 1
+        - Sensor Ultrassônico HC-SR04 - 2
         - resistores
             - 300 ohms - 3
             - 10k ohms - 3
 
     Links:
-        -Wokwi Projeto: https://wokwi.com/projects/433713661752360961
+        -Wokwi Projeto: https://wokwi.com/projects/433760836074052609
         -GitHub: https://github.com/Victor-Augusto-2025016677/ESP32_projects.git
 */
 
@@ -51,6 +52,7 @@
 #include <WiFiUdp.h> //Biblioteca para comunicação UDP, necessária para o NTPClient
 #include <time.h> // Biblioteca para manipulação de tempo
 #include <ESP32Servo.h> // Biblioteca para controle de servo motor
+#include <Ultrasonic.h> //Biblioteca para o sr04 (sensor ultrassônico)
 
 // Definição das credenciais de Wi-Fi
 const char *ssid     = "Wifi2";
@@ -78,18 +80,29 @@ String horaAtual; // Variável para armazenar a hora atual
 
 // Definição dos pinos utilizados
 const byte botao = 25;
-const byte sensorEntrada = 33;
+const byte alavancamanual = 33;
 const byte sensorSaida = 34;
 const byte ledVerde = 27;
 const byte ledVermelho = 26;
 const byte ledImpressao = 14;
 const byte buzzer = 12;
 const byte servo = 21;
+const byte trig1 = 16;
+const byte echo1 = 17;
+const byte trig2 = 22;
+const byte echo2 = 23;
+bool entradaAtiva = false; // Variável para verificar se há um carro na entrada
+
+//definição dos sensores ultrassônico
+Ultrasonic ultrasonic1(trig1, echo1);
+Ultrasonic ultrasonic2(trig2, echo2);
+const int cmpresente = 50;
 
 //Variaveis servo
 const int posicaoAberta = 500; // Posição do servo motor para a cancela aberta
 const int posicaoFechada = 1495; // Posição do servo motor para a cancela fechada
 
+//Serial.println("Distance in CM: " + String(ultrasonic.read())+ " ");
 
 // Variáveis para controle de tempo de espera para o timeout
 unsigned long tempoEspera = 0; // Variável para armazenar o tempo de espera, inicia zerada. 
@@ -97,6 +110,7 @@ unsigned long tempoEspera1 = 0;
 unsigned long tempoEspera2 = 0;
 unsigned long tempoEspera3 = 0;
 unsigned long tempoEspera4 = 0;
+unsigned long tempoEspera5 = 0;
 bool timeout1 = false; // Variável para controle de timeout na entrada
 bool timeout2 = false; // Variável para controle de timeout na saida
 
@@ -201,7 +215,7 @@ void SegurancaEntrada() // Esta função garante que a cancela não fique aberta
     tempoEspera1 = millis(); //reseta o tempo para evitar a repetição de mensagens
     unsigned long tempoInicio = millis(); // Armazena o tempo de início da operação, para a realização do timeout
 
-    while (digitalRead(sensorEntrada)) //Enquanto há um carro na entrada
+    while ((ultrasonic1.read() <= cmpresente) == true) //Enquanto há um carro na entrada
     {
         if (millis() - tempoInicio >= TIMEOUT_ENTRADA) // Verifica se o tempo de espera excedeu 30 segundos, caso sim, cancela a operação
         {
@@ -218,46 +232,132 @@ void SegurancaEntrada() // Esta função garante que a cancela não fique aberta
         }
     }
 
-    if (digitalRead(sensorEntrada) == false) //Se o carro saiu da entrada
+    if ((ultrasonic1.read() <= cmpresente) == false) //Se o carro saiu da entrada
     {
         Serial.println("Carro saiu da entrada.\n");
     }
 
 }
 
-void SegurancaSaida() //Esta função, garante que a saida ocorra com segurança, realizando verificações para evitar a passagem consecutiva, e danificar o veiculo.
+void SegurancaSaida()
 {
-    timeout2 = false; // Reseta o timeout para a saída
+    timeout2 = false;
     tempoEspera2 = millis();
-    unsigned long tempoInicio1 = millis(); //Salva o tempo para a realização do timeout
+    unsigned long tempoInicio1 = millis();
 
-    while (digitalRead(sensorSaida) == false && timeout1 == false) //Enquanto o carro não sair
-    {
-        if (millis() - tempoInicio1 >= TIMEOUT_SAIDA) //evento de timeout
+    // Só monitora a saída se não houve timeout na entrada
+    while (timeout1 == false)
+    {   
+        int leituraSaida = ultrasonic2.read();
+        int leituraEntrada = ultrasonic1.read();
+
+        if (leituraSaida < cmpresente)
         {
-            Serial.println("Tempo limite excedido. Cancelando operação.\n"); //Aviso de Cancelamento
-            aviso(); // Fecha a cancela, com avisos
-            timeout2 = true; // Define o timeout como verdadeiro
-            break;
+            break; // Carro saiu da área do sensor de saída
         }
-        if (millis() - tempoEspera2 >= INTERVALO_MSG) //para a mensagem não se repetir a cada ciclo de processamento
+
+        if (millis() - tempoInicio1 >= TIMEOUT_SAIDA)
         {
-            Serial.println("Carro ainda não saiu completamente...\n"); //Mensagem de feedback
+            Serial.println("Tempo limite excedido. Cancelando operação.\n");
+            aviso();
+            timeout2 = true;
+            return;
+        }
+
+        if (millis() - tempoEspera2 >= INTERVALO_MSG)
+        {
+            Serial.println("Carro ainda não saiu completamente...\n");
             tempoEspera2 = millis();
         }
     }
 
-    if (digitalRead(sensorEntrada) && digitalRead(sensorSaida)) //Caso tenha um carro na entrada e saída
+    if (timeout1 == false)
+    {
+    // Testes finais após o loop
+    int leituraSaida = ultrasonic2.read();
+    int leituraEntrada = ultrasonic1.read();
+
+    if (leituraSaida <= cmpresente && leituraEntrada <= cmpresente)
     {
         Serial.println("Carro detectado na entrada e saída. Fechando cancela imediatamente para impedir passagem consecutiva sem emissão de ticket.\n");
+        Serial.println("Fechando cancela imediatamente!\n");
         FecharCancela();
     }
-    else if (digitalRead(sensorSaida)) //Caso tenha um carro na saída
+    else if (leituraSaida <= cmpresente)
     {
         Serial.println("Carro detectado na saída. Fechando cancela dentro de 2 segundos.\n");
         delay(DELAY_FECHAMENTO);  
         FecharCancela();
     }
+    }
+}
+
+void manual()
+{
+    bool ativacaomanual = digitalRead(alavancamanual); //Le o a alavanca de ativação manual, caso tenha sido utilizada
+    bool execunica = false;
+    while(digitalRead(alavancamanual) == HIGH) 
+    {
+        if (execunica == false)
+        {
+            Serial.println("Alavanca manual ativada. Cancela será aberta manualmente.\n");
+            AbrirCancela(); // Abre a cancela manualmente
+            execunica = true; // Evita que a mensagem seja repetida
+        }
+        if (millis() - tempoEspera5 >= INTERVALO_MSG) //para a mensagem não se repetir a cada ciclo de processamento
+        {
+            Serial.println("Cancela em modo MANUAL"); //Mensagem de feedback
+            Serial.println("Status atual cancela: " + String(cancelaAberta ? " Aberta." : " Fechada.") + "\n"); //Informa o status atual da cancela
+            tempoEspera5 = millis();
+        }
+    }
+    if (execunica == true) // Se a alavanca foi ativada
+    {
+        Serial.println("Alavanca manual desativada. Cancela será fechada.\n");
+        FecharCancela(); // Fecha a cancela manualmente
+    }
+}
+
+void entradaativa() //Função para verificar se há um carro na entrada
+{
+    if (ultrasonic1.read() <= cmpresente) //Se o sensor ultrassônico detectar um carro na posição de entrada
+    {
+        entradaAtiva = true; //Define a variável entradaAtiva como verdadeira
+    }
+    else
+    {
+        entradaAtiva = false; //Caso contrário, define como falsa
+    }
+}
+
+void entradacarro()
+{
+    Serial.println("Botão pressionado.\n"); //Mensagem que o botão foi pressionado
+        
+    ImprimirTicket(); //Inicia a impressão do ticket
+
+    AbrirCancela(); //Abre a cancela
+
+    SegurancaEntrada(); //Chama a função de segurança da entrada
+
+    SegurancaSaida(); //Chama a função de segurança da saída, o fechamento da cancela é chamado internamente.
+
+    if (timeout1 == true || timeout2 == true) //Se algum timeout foi ativado, não incrementa o contador de carros
+    {
+        Serial.println("Operação cancelada devido ao timeout. Contador de carros não incrementado.\n");
+        if (NumeroCarros > 0) 
+        {
+            NumeroCarros--;  //subtrai 1 do  contador de carros, pois não houve um registro válido
+        }
+        }
+    else //Se não houve timeout, segue normalmente
+    {
+        Serial.println("Carro registrado com sucesso.\n");
+        Serial.println("Sistema pronto para novo veículo.\n"); //Mensagem que o sistema está pronto para uma nova execução
+    }
+
+
+
 }
 
 void setup() //Inicia o setup do sistema
@@ -266,7 +366,7 @@ void setup() //Inicia o setup do sistema
 
     //Define os pinos como entrada ou Saida
     pinMode(botao, INPUT);
-    pinMode(sensorEntrada, INPUT);
+    pinMode(alavancamanual, INPUT);
     pinMode(sensorSaida, INPUT);
     pinMode(ledVerde, OUTPUT);
     pinMode(ledVermelho, OUTPUT);
@@ -300,14 +400,14 @@ void setup() //Inicia o setup do sistema
     cancelaAberta = false;
     
     //Mensagem que o sistema iniciou, infelizmente nunca é vista, pois até abrir o monitor serial, isto já foi executado
-    Serial.println("Sistema de Controle de Cancela Iniciado.");
+    Serial.println("");
+    Serial.println("Sistema de Controle de Cancela Iniciado.\n");
 }
 
 void loop() //Função de loop continuo
 {
     unsigned long atual = millis(); //Salva o tempo do loop atual
-    bool entradaAtiva = digitalRead(sensorEntrada); //Le o sensor de entrada
-    bool saidaAtiva = digitalRead(sensorSaida); //Le o sensor de saida
+    bool ativacaomanual = digitalRead(alavancamanual); //Le o a alavanca de ativação manual, caso tenha sido utilizada
     bool botaoPressionado = digitalRead(botao); //Le o botão de inicio
 
     if (atual - horaultimoReset >= intervaloReset) //Reset a cada 24h do número de carros.
@@ -317,32 +417,16 @@ void loop() //Função de loop continuo
         Serial.println("Contador de carros resetado após 24h.");
     }
 
+    if (ativacaomanual == true) //Se a alavanca manual for ativada, chama a função de controle manual
+    {
+        manual(); //Chama a função de controle manual
+    }
+
+    entradaativa(); //Chama a função para verificar se há carro na entrada
+
     if (entradaAtiva && botaoPressionado) //Se há carro na posição de entrada, e o botão foi pressionado, inicia a sequencia de ações
     {
-        Serial.println("Botão pressionado.\n"); //Mensagem que o botão foi pressionado
-        
-        ImprimirTicket(); //Inicia a impressão do ticket
-
-        AbrirCancela(); //Abre a cancela
-
-        SegurancaEntrada(); //Chama a função de segurança da entrada
-
-        SegurancaSaida(); //Chama a função de segurança da saída, o fechamento da cancela é chamado internamente.
-
-        if (timeout1 == true || timeout2 == true) //Se algum timeout foi ativado, não incrementa o contador de carros
-        {
-            Serial.println("Operação cancelada devido ao timeout. Contador de carros não incrementado.\n");
-            if (NumeroCarros > 0) 
-            {
-                NumeroCarros--;  //subtrai 1 do  contador de carros, pois não houve um registro válido
-            }
-        }
-        else //Se não houve timeout, segue normalmente
-        {
-            Serial.println("Carro registrado com sucesso.\n");
-            Serial.println("Sistema pronto para novo veículo.\n"); //Mensagem que o sistema está pronto para uma nova execução
-        }
-        
+        entradacarro(); //Chama a função de entrada do carro
     }
 
         else if (!entradaAtiva && botaoPressionado && millis() - tempoEspera >= INTERVALO_MSG) //Se não há carro na posição, mas o botão foi pressionado
@@ -363,6 +447,7 @@ void loop() //Função de loop continuo
                 {
                     Serial.println("Não há carro na posição, sistema em idle (Aguardando Veiculos)");
                     Serial.println("Status atual cancela: " + String(cancelaAberta ? " Aberta." : " Fechada.") + "\n");
+                    Serial.println("Distance in CM: " + String(ultrasonic2.read())); //FIZ PARA TESTAR, E SIM, ELE LÊ PERFEITAMENTE. 
                     tempoEspera4 = millis();
                 }
 

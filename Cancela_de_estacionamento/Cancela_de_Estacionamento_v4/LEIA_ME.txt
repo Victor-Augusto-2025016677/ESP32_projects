@@ -1,0 +1,1 @@
+Do V3 em diante, por motivos desconhecidos, deve ser compilado e enviado via Arduino IDE, as bibliotecas estão na pasta libraries, basta jogar na pasta do Arduino. Caso tenha dúvidas, leia o txt dentro dela. 
