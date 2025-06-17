@@ -287,12 +287,15 @@ void setup() {
     // Conexão com a rede Wi-Fi
     WiFi.begin(ssid, password); // Inicia a tentativa de conexão Wi-Fi
     int a = 0; // Contador para limitar o tempo de tentativa de conexão
-    while (a < 20) { // Tenta conectar por aproximadamente 10 segundos
+ // Tenta conectar por aproximadamente 10 segundos
     while (WiFi.status() != WL_CONNECTED) {
         delay(500); // Aguarda 0,5 segundo
         Serial.print("."); // Imprime um ponto para indicar tentativa
         a++;
-    }
+        if (a > 20) 
+        {
+            break;
+        }
     }
 
     if (WiFi.status() == WL_CONNECTED) { // Se a conexão foi bem-sucedida
