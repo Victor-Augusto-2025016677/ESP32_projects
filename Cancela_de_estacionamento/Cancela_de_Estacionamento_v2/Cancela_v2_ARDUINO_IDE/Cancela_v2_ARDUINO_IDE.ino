@@ -48,6 +48,10 @@
 #include <WiFi.h> //Biblioteca para conexão Wi-Fi
 #include <WiFiUdp.h> //Biblioteca para comunicação UDP, necessária para o NTPClient
 #include <time.h> // Biblioteca para manipulação de tempo
+#include <EEPROM.h>
+
+#define EEPROM_SIZE 4     // Espaço necessário para um int (4 bytes)
+#define ADDR_CONTADOR 0   // Endereço onde o contador será salvo
 
 // Definição das credenciais de Wi-Fi
 const char *ssid     = "Wifi2";
@@ -69,6 +73,9 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org", -3 * 3600); // UTC-3 (Brasília)
 String dataAtual;
 String horaAtual;
 
+//controle de reset diário
+String ultimaDataReset = ""; // Armazena a data do último reset do contador
+
 // Definição dos pinos utilizados
 const byte botao = 16;
 const byte sensorEntrada = 21;
@@ -86,6 +93,7 @@ unsigned long tempoEspera3 = 0; // Controle de intervalo para mensagens de statu
 unsigned long tempoEspera4 = 0; // Controle de intervalo para mensagens de status: sistema ocioso
 bool timeout1 = false;           // Indica se houve timeout na entrada
 bool timeout2 = false;           // Indica se houve timeout na saída
+bool exec1 = false; // Variável para controle de execução do reset diário
 
 // Constantes de tempo (em milissegundos)
 const unsigned long TIMEOUT_ENTRADA = 30000; // Timeout da entrada (30 segundos)
@@ -101,8 +109,6 @@ const unsigned long delaybuzzer = 500;         // Duração de cada aviso sonoro
 
 // Variáveis do contador de carros e controle de reset diário
 unsigned int NumeroCarros = 0;                 // Contador de carros que entraram no estacionamento
-unsigned long horaultimoReset = 0;             // Armazena o horário do último reset do contador
-const unsigned long intervaloReset = 24UL * 60UL * 60UL * 1000UL; // 24 horas em milissegundos
 
 bool cancelaAberta = false;                    // Indica o estado atual da cancela
 
@@ -122,6 +128,11 @@ void atualizarDataHora() {
 
     dataAtual = String(dataBuffer);
     horaAtual = String(horaBuffer);
+
+    if (exec1 == false) {
+        ultimaDataReset = dataAtual;
+        exec1 = true; // Garante que o reset diário só ocorra uma vez
+    }
 }
 
 // Fecha a cancela, atualiza LEDs e status
@@ -148,10 +159,10 @@ void aviso() {
 
 // Simula a impressão do ticket de entrada, incrementa o contador e mostra informações detalhadas
 void ImprimirTicket() {
-    atualizarDataHora();               // Atualiza data/hora antes de imprimir
     Serial.println("Imprimindo ticket...\n");
     digitalWrite(ledImpressao, HIGH);  // Acende o LED de impressão
     delay(DELAY_IMPRESSAO);            // Simula tempo de impressão
+    atualizarDataHora();               // Atualiza data/hora antes de imprimir
     Serial.println("| ==================== |");
     Serial.println("| Ticket de Entrada");
     Serial.println("| Data: " + dataAtual);
@@ -220,9 +231,6 @@ void SegurancaSaida() {
     // Anti-fraude: detecta tentativa de passagem consecutiva
     if (digitalRead(sensorEntrada) && digitalRead(sensorSaida)) {
         Serial.println("Carro detectado na entrada e saída. Fechando cancela imediatamente para impedir passagem consecutiva sem emissão de ticket.\n");
-        digitalWrite(buzzer, HIGH);    // Liga o buzzer
-        delay(delaybuzzer);            // Espera 0,5s
-        digitalWrite(buzzer, LOW);     // Desliga o buzzer
         FecharCancela();
     } else if (digitalRead(sensorSaida)) { // Carro saiu normalmente
         Serial.println("Carro detectado na saída. Fechando cancela dentro de 2 segundos.\n");
@@ -235,6 +243,10 @@ void SegurancaSaida() {
 
 // Inicializa o sistema, define pinos, conecta ao Wi-Fi e sincroniza o relógio
 void setup() {
+
+    EEPROM.begin(EEPROM_SIZE);
+    EEPROM.get(ADDR_CONTADOR, NumeroCarros);
+
     Serial.begin(115200); // Inicializa a comunicação serial
 
     // Define os pinos como entrada ou saída conforme o hardware
@@ -269,15 +281,18 @@ void setup() {
 
 // Loop principal: gerencia o fluxo de veículos, impressão de tickets e segurança
 void loop() {
-    unsigned long atual = millis(); // Marca o tempo atual do loop
+    atualizarDataHora(); // Atualiza data e hora atuais
     bool entradaAtiva = digitalRead(sensorEntrada); // Lê o sensor de entrada
+    bool saidaAtiva = digitalRead(sensorSaida);   // Lê o sensor de saída
     bool botaoPressionado = digitalRead(botao);         // Lê o botão de solicitação
 
-    // Reset diário do contador de carros após 24h
-    if (atual - horaultimoReset >= intervaloReset) {
+    // Reset diário do contador de carros APENAS quando o dia virar
+    if (dataAtual != ultimaDataReset) {
         NumeroCarros = 0;
-        horaultimoReset = atual;
-        Serial.println("Contador de carros resetado após 24h.");
+        EEPROM.put(ADDR_CONTADOR, 0);
+        EEPROM.commit();
+        ultimaDataReset = dataAtual;
+        Serial.println("Contador de carros resetado: novo dia detectado.");
     }
 
     // Caso 1: Carro na entrada e botão pressionado - inicia sequência principal
@@ -295,6 +310,8 @@ void loop() {
                 NumeroCarros--;
             }
         } else {
+            EEPROM.put(ADDR_CONTADOR, NumeroCarros);
+            EEPROM.commit();
             Serial.println("Carro registrado com sucesso.\n");
             Serial.println("Sistema pronto para novo veículo.\n");
         }
