@@ -10,7 +10,7 @@
         - Gustavo Fernandes Gonçalves de Lima - 2025002985
         - Arthur Moraes Marques dos Santos - 2025001389
 
-    Funcionalidades basicas solicitadas:
+    Funcionalidades básicas solicitadas:
         - O sistema deve controlar a abertura e fechamento de uma cancela de estacionamento.
         - Deve imprimir um ticket genérico (via monitor serial) quando o botão for pressionado por um motorista na entrada.
         - A impressão do ticket é simulada por um período de 3 segundos.
@@ -28,6 +28,15 @@
         - Feedback Detalhado de Status: Fornece mensagens específicas no monitor serial para diversas situações, como 'carro aguardando botão', 'botão pressionado sem carro' e 'sistema ocioso'.
         - Indicador Visual de Impressão: Um LED dedicado (ledImpressao) acende durante a simulação da impressão do ticket, fornecendo um feedback visual da operação.
 
+    Novas funções implementadas:
+        - **atualizarDataHora()**: Atualiza as variáveis de data e hora usando NTP ou, em caso de falha, a data/hora de compilação.
+        - **FecharCancela()**: Fecha a cancela, atualiza LEDs e estado.
+        - **aviso()**: Fecha a cancela com aviso sonoro (buzzer) antes do fechamento.
+        - **ImprimirTicket()**: Simula a impressão do ticket, mostra informações detalhadas e acende o LED de impressão.
+        - **AbrirCancela()**: Abre a cancela, atualiza LEDs e estado.
+        - **SegurancaEntrada()**: Garante que a cancela não fique aberta por muito tempo na entrada (timeout).
+        - **SegurancaSaida()**: Garante a segurança na saída, evitando passagem consecutiva e timeout.
+
     Hardware utilizado:
         - ESP32 - 1
         - Botão - 2
@@ -41,250 +50,319 @@
             - 10k ohms - 3
 
     Links:
-        -Wokwi Projeto: https://wokwi.com/projects/433713661752360961
-        -GitHub: https://github.com/Victor-Augusto-2025016677/ESP32_projects.git
+        - Wokwi Projeto: https://wokwi.com/projects/433713661752360961
+        - GitHub: https://github.com/Victor-Augusto-2025016677/ESP32_projects.git
 */
 
-//#include <Arduino.h> //Somente necessário para o platformio, caso contrario, não é necessário, pois o Arduino IDE já inclui essa biblioteca por padrão.
-#include <NTPClient.h> //Cliente NTP para sincronização de tempo
-#include <WiFi.h> //Biblioteca para conexão Wi-Fi
-#include <WiFiUdp.h> //Biblioteca para comunicação UDP, necessária para o NTPClient
-#include <time.h> // Biblioteca para manipulação de tempo
-#include <ESP32Servo.h> // Biblioteca para controle de servo motor
+COLOQUE O BOTÃO DE TICKET RETIRADO NO PINO 11 ANTES DE COMPILAR E PASSAR O PROJETO PARA A ESP32
 
-// Definição das credenciais de Wi-Fi
-const char *ssid     = "Wifi2";
-const char *password = "01010101";
+// Bibliotecas necessárias para funcionamento do sistema
+#include <NTPClient.h>      // Cliente NTP para sincronização de tempo
+#include <WiFi.h>           // Biblioteca para conexão Wi-Fi
+#include <WiFiUdp.h>        // Biblioteca para comunicação UDP, necessária para o NTPClient
+#include <time.h>           // Biblioteca para manipulação de tempo
+#include <ESP32Servo.h>     // Biblioteca para controle de servo motor
+
+// ===================== Configurações de Wi-Fi =====================
+const char *ssid     = "Wifi2";      // Nome da rede Wi-Fi
+const char *password = "01010101";   // Senha da rede Wi-Fi
+
+#define EEPROM_SIZE 4     // Espaço necessário para um int (4 bytes)
+#define ADDR_CONTADOR 0   // Endereço onde o contador será salvo
 
 /*
-Para que a esp conecte-se a esta rede wifi, crie um hotspot com as seguintes configurações:
-
+Para que a ESP conecte-se a esta rede Wi-Fi, crie um hotspot com as seguintes configurações:
     - Nome da rede: Wifi2
     - Senha: 01010101
     - Tipo de segurança: WPA2-PSK
     - Banda: 2.4GHz
-
 */
 
-//Servo motor para controle da cancela
-Servo ServoCancela; // Criação do objeto Servo para controle da cancela
+// ===================== Inicialização de Objetos =====================
+Servo ServoCancela; // Objeto Servo para controle da cancela
 
-// Inicialização do cliente NTP
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", -3 * 3600); // UTC-3
+WiFiUDP ntpUDP; // Objeto UDP para NTP
+NTPClient timeClient(ntpUDP, "pool.ntp.org", -3 * 3600); // Cliente NTP configurado para UTC-3
 
-String dataAtual; // Variável para armazenar a data atual
-String horaAtual; // Variável para armazenar a hora atual
+// ===================== Variáveis Globais =====================
+String dataAtual;         // Armazena a data atual
+String horaAtual;         // Armazena a hora atual
+String ultimaDataReset = ""; // Armazena a data do último reset do contador
 
-// Definição dos pinos utilizados
-const byte botao = 25;
-const byte sensorEntrada = 33;
-const byte sensorSaida = 34;
-const byte ledVerde = 27;
-const byte ledVermelho = 26;
-const byte ledImpressao = 14;
-const byte buzzer = 12;
-const byte servo = 21;
+// ===================== Definição dos Pinos =====================
+const byte botao = 25;           // Botão de entrada
+const byte sensorEntrada = 33;   // Sensor de presença na entrada
+const byte sensorSaida = 34;     // Sensor de presença na saída
+const byte ledVerde = 27;        // LED verde (cancela aberta)
+const byte ledVermelho = 26;     // LED vermelho (cancela fechada)
+const byte ledImpressao = 14;    // LED amarelo (impressão do ticket)
+const byte buzzer = 12;          // Buzzer para avisos sonoros
+const byte servo = 21;           // Pino do servo motor
+const byte ticketcancela = 11; // Pino para indicar ticket cancelado
 
-//Variaveis servo
-const int posicaoAberta = 500; // Posição do servo motor para a cancela aberta
-const int posicaoFechada = 1495; // Posição do servo motor para a cancela fechada
+// ===================== Variáveis do Servo Motor =====================
+const int posicaoAberta = 500;    // Posição do servo motor para a cancela aberta
+const int posicaoFechada = 1495;  // Posição do servo motor para a cancela fechada
 
+// ===================== Variáveis de Controle de Tempo =====================
+unsigned long tempoEspera = 0;    // Controle de tempo para mensagens de status
+unsigned long tempoEspera1 = 0;   // Controle de tempo para mensagens na entrada
+unsigned long tempoEspera2 = 0;   // Controle de tempo para mensagens na saída
+unsigned long tempoEspera3 = 0;   // Controle de tempo para mensagens de status (carro aguardando botão)
+unsigned long tempoEspera4 = 0; // Controle de tempo para mensagens de status (sistema ocioso)
+unsigned long tempoEspera5 = 0; 
+bool timeout1 = false;            // Controle de timeout na entrada
+bool timeout2 = false;            // Controle de timeout na saída
+bool exec1 = false;               // Controle de execução do reset diário
 
-// Variáveis para controle de tempo de espera para o timeout
-unsigned long tempoEspera = 0; // Variável para armazenar o tempo de espera, inicia zerada. 
-unsigned long tempoEspera1 = 0;
-unsigned long tempoEspera2 = 0;
-unsigned long tempoEspera3 = 0;
-unsigned long tempoEspera4 = 0;
-bool timeout1 = false; // Variável para controle de timeout na entrada
-bool timeout2 = false; // Variável para controle de timeout na saida
+// ===================== Constantes de Tempo =====================
+const unsigned long TIMEOUT_ENTRADA = 30000;    // Timeout da entrada (30 segundos)
+const unsigned long TIMEOUT_SAIDA = 30000;      // Timeout da saída (30 segundos)
+const unsigned long DELAY_IMPRESSAO = 1500;     // Duração da impressão do ticket (1,5s, usado 2x)
+const unsigned long DELAY_FECHAMENTO = 2000;    // Duração do fechamento da cancela (2s)
+const unsigned long DELAY_CANCELA = 500;        // Duração da abertura/fechamento da cancela (0,5s)
+const unsigned long INTERVALO_MSG = 2000;       // Intervalo entre mensagens de status (2s)
 
-//Variaveis de tempo
-const unsigned long TIMEOUT_ENTRADA = 30000; //timeout da entrada, em milissegundos (30 segundos)
-const unsigned long TIMEOUT_SAIDA = 30000; //timeout da saida, em milissegundos (30 segundos)
-const unsigned long DELAY_IMPRESSAO = 1500; // Duração da impressão do ticket, em milissegundos, é utilizada 2 vezes, logo, 3 segundos de impressão
-const unsigned long DELAY_FECHAMENTO = 2000; // Duração do fechamento da cancela, em milissegundos (2 segundos)
-const unsigned long DELAY_CANCELA = 500; // Duração da abertura/fechamento da cancela, em milissegundos (0,5 segundo)
-const unsigned long INTERVALO_MSG = 2000; // Intervalo de tempo entre mensagens de status, em milissegundos (2 segundos)
+// ===================== Variáveis do Buzzer =====================
+const int SEGUNDOS_AVISO_BUZZER = 5;            // Quantidade de avisos sonoros antes de fechar a cancela
+const unsigned long delaybuzzer = 500;          // Duração do beep do buzzer (0,5s)
 
-//variaveis buzzer
-const int SEGUNDOS_AVISO_BUZZER = 5; //Quantidade de vezes que o buzzer irá tocar, e duração total em seugundos
-const unsigned long delaybuzzer = 500; //Atenção, a função de ativação do buzzer, assume que esse valor é 0.5s (500), ou seja, caso altere, a constante anterior, vai ser inexata. 
+// ===================== Outras Variáveis =====================
+unsigned int NumeroCarros = 0;      // Contador de carros que entraram no estacionamento
+bool cancelaAberta = false;         // Estado atual da cancela (aberta/fechada)
 
-//Outras variaveis
-unsigned int NumeroCarros = 0; // Contador de carros que entraram no estacionamento
-unsigned long horaultimoReset = 0; // Armazena o horário do último reset do contador
-const unsigned long intervaloReset = 24UL * 60UL * 60UL * 1000UL; // 24 horas em milissegundos
-bool cancelaAberta = false; // Variável para controle do estado da cancela
+// ===================== Funções Principais =====================
 
-//Inicio das funções
+/*
+    Função: atualizarDataHora
+    - Atualiza as variáveis dataAtual e horaAtual usando o NTP.
+    - Caso não haja conexão Wi-Fi, utiliza a data/hora de compilação como fallback.
+    - Também inicializa a variável de controle do reset diário.
+*/
+void atualizarDataHora() {
+    if (WiFi.status() == WL_CONNECTED) { // Se Wi-Fi conectado, usa NTP
+        timeClient.update();
+        time_t rawTime = timeClient.getEpochTime();
+        struct tm *timeInfo = localtime(&rawTime);
 
-void atualizarDataHora() 
-{
-  timeClient.update(); // Atualiza o cliente NTP para obter a hora atual
+        char dataBuffer[11];
+        char horaBuffer[9];
+        strftime(dataBuffer, sizeof(dataBuffer), "%d/%m/%Y", timeInfo);
+        strftime(horaBuffer, sizeof(horaBuffer), "%H:%M:%S", timeInfo);
 
-  time_t rawTime = timeClient.getEpochTime(); // Obtém o tempo atual em segundos desde 1 de janeiro de 1970
-  struct tm * timeInfo = localtime(&rawTime); // Converte o tempo bruto para a estrutura tm, que contém informações sobre data e hora
+        dataAtual = String(dataBuffer);
+        horaAtual = String(horaBuffer);
 
-  char dataBuffer[11]; // Formato: dd/mm/yyyy
-  char horaBuffer[9]; // Formato: hh:mm:ss
-  strftime(dataBuffer, sizeof(dataBuffer), "%d/%m/%Y", timeInfo); // Formata a data
-  strftime(horaBuffer, sizeof(horaBuffer), "%H:%M:%S", timeInfo); // Formata a hora
+        if (!exec1) {
+            ultimaDataReset = dataAtual;
+            exec1 = true;
+        }
+    } else { // Se Wi-Fi não conectado, usa data/hora de compilação
+        struct tm timeInfo = {0};
+        strptime(__DATE__ " " __TIME__, "%b %d %Y %H:%M:%S", &timeInfo);
 
-  dataAtual = String(dataBuffer); // Converte o buffer de data para String
-  horaAtual = String(horaBuffer); // Converte o buffer de hora para String
+        char dataBuffer[11];
+        char horaBuffer[9];
+        strftime(dataBuffer, sizeof(dataBuffer), "%d/%m/%Y", &timeInfo);
+        strftime(horaBuffer, sizeof(horaBuffer), "%H:%M:%S", &timeInfo);
+
+        dataAtual = String(dataBuffer);
+        horaAtual = String(horaBuffer);
+
+        if (!exec1) {
+            ultimaDataReset = dataAtual;
+            exec1 = true;
+        }
+    }
 }
 
-void FecharCancela() // Esta função é usada para fechar a cancela
-{
-    //ServoCancela.attach(servo, 395, 2595); // Anexa o servo motor ao pino definido
-    digitalWrite(ledImpressao, LOW); // Desliga o LED de impressão
-    digitalWrite(ledVerde, LOW); // Desliga o LED verde
-    digitalWrite(ledVermelho, HIGH); // Liga o LED vermelho
-    ServoCancela.writeMicroseconds(posicaoFechada); // Define a posição do servo motor para fechar a cancela
-    //ServoCancela.detach(); // Desanexa o servo motor para evitar consumo desnecessário de energia
-    Serial.println("Cancela fechada.\n"); // Mensagem de confirmação de fechamento da cancela
-    delay(DELAY_CANCELA); // Mantém a cancela fechada por 0,5 segundo
-    cancelaAberta = false; // Define o estado da cancela como fechada
+/*
+    Função: FecharCancela
+    - Fecha a cancela, atualiza LEDs e estado.
+    - Garante que o sistema fique em estado seguro.
+*/
+void FecharCancela() {
+    digitalWrite(ledImpressao, LOW);    // Desliga LED de impressão
+    digitalWrite(ledVerde, LOW);        // Desliga LED verde
+    digitalWrite(ledVermelho, HIGH);    // Liga LED vermelho
+    ServoCancela.writeMicroseconds(posicaoFechada); // Fecha a cancela
+    Serial.println("Cancela fechada.\n");
+    delay(DELAY_CANCELA);               // Aguarda para simular fechamento
+    cancelaAberta = false;              // Atualiza estado
 }
 
-void aviso() //Função para fechar a cancela com avisos sonoros. 
-{
-  Serial.println("A cancela irá fechar em " + String(SEGUNDOS_AVISO_BUZZER) + " segundos\n"); //mensagem de aviso
-
-  for (int i = 0; i < SEGUNDOS_AVISO_BUZZER; i++) 
-  {
-    digitalWrite(buzzer, HIGH); // Liga o buzzer
-    delay(delaybuzzer); // Espera 500ms
-    digitalWrite(buzzer, LOW);  // Desliga o buzzer
-    delay(delaybuzzer); // Espera 500ms
-  }
-
-  FecharCancela();
+/*
+    Função: aviso
+    - Emite avisos sonoros antes de fechar a cancela.
+    - Utilizada em situações de timeout ou fraude.
+*/
+void aviso() {
+    Serial.println("A cancela irá fechar em " + String(SEGUNDOS_AVISO_BUZZER) + " segundos\n");
+    for (int i = 0; i < SEGUNDOS_AVISO_BUZZER; i++) {
+        digitalWrite(buzzer, HIGH);
+        delay(delaybuzzer);
+        digitalWrite(buzzer, LOW);
+        delay(delaybuzzer);
+    }
+    FecharCancela();
 }
 
-void ImprimirTicket() //Esta função simula a impressão do ticket de entrada
-{
-    atualizarDataHora();
-    Serial.println("Imprimindo ticket...\n"); 
+/*
+    Função: ImprimirTicket
+    - Simula a impressão do ticket de entrada.
+    - Mostra informações detalhadas (data, hora, número do carro).
+    - Acende o LED de impressão durante o processo.
+*/
+void ImprimirTicket() {
+    Serial.println("Imprimindo ticket...\n");
     digitalWrite(ledImpressao, HIGH);
     delay(DELAY_IMPRESSAO);
-    Serial.println("| ==================== |"); //delimitação estética do ticket
+    atualizarDataHora();
+    Serial.println("| ==================== |");
     Serial.println("| Ticket de Entrada");
-    Serial.println("| Data: " + dataAtual); //Data da emissão do ticket
-    Serial.println("| Hora: " + horaAtual); //Hora da emissão do ticket
-    Serial.println("| Carro N°: " + String(++NumeroCarros)); //Nº do carro
+    Serial.println("| Data: " + dataAtual);
+    Serial.println("| Hora: " + horaAtual);
+    Serial.println("| Carro N°: " + String(++NumeroCarros));
     Serial.println("| ==================== |\n");
-    delay(DELAY_IMPRESSAO); //1500ms +1500ms = 3 segundos de impressão, como solicitado 
+    delay(DELAY_IMPRESSAO);
     digitalWrite(ledImpressao, LOW);
-    Serial.println("Ticket impresso.\n"); // Mensagem de confirmação de impressão
+    Serial.println("Ticket impresso.\n");
 }
 
-void AbrirCancela() //Esta função é usada para abrir a cancela
-{
-    //ServoCancela.attach(servo, 395, 2595); // Anexa o servo motor ao pino definido
+/*
+    Função: AbrirCancela
+    - Abre a cancela, atualiza LEDs e estado.
+    - Utilizada após a impressão do ticket.
+*/
+void AbrirCancela() {
     Serial.println("Abrindo cancela...\n");
-    digitalWrite(ledImpressao, LOW); // Desliga o LED de impressão
-    digitalWrite(ledVermelho, LOW); // Desliga o LED vermelho
-    digitalWrite(ledVerde, HIGH); // Liga o LED verde
-    ServoCancela.writeMicroseconds(posicaoAberta); // Define a posição do servo motor para abrir a cancela
-    //ServoCancela.detach(); // Desanexa o servo motor para evitar consumo desnecessário de energia
-    Serial.println("Cancela aberta.\n"); // Mensagem de confirmação de abertura da cancela
-    delay(DELAY_CANCELA); // Delay de 0,5 segundo para simular a abertura da cancela
-    cancelaAberta = true; // Define o estado da cancela como aberta
+    digitalWrite(ledImpressao, LOW);
+    digitalWrite(ledVermelho, LOW);
+    digitalWrite(ledVerde, HIGH);
+    ServoCancela.writeMicroseconds(posicaoAberta); // Abre a cancela
+    Serial.println("Cancela aberta.\n");
+    delay(DELAY_CANCELA);
+    cancelaAberta = true;
 }
 
-void SegurancaEntrada() // Esta função garante que a cancela não fique aberta por muito tempo na entrada
-{
-    timeout1 = false; // Reseta o timeout para a entrada
-    tempoEspera1 = millis(); //reseta o tempo para evitar a repetição de mensagens
-    unsigned long tempoInicio = millis(); // Armazena o tempo de início da operação, para a realização do timeout
+/*
+    Função: SegurancaEntrada
+    - Garante que a cancela não fique aberta por muito tempo na entrada.
+    - Fecha a cancela automaticamente após timeout.
+    - Exibe mensagens de status enquanto o carro está na entrada.
+*/
+void SegurancaEntrada() {
+    timeout1 = false;
+    tempoEspera1 = millis();
+    unsigned long tempoInicio = millis();
 
-    while (digitalRead(sensorEntrada)) //Enquanto há um carro na entrada
-    {
-        if (millis() - tempoInicio >= TIMEOUT_ENTRADA) // Verifica se o tempo de espera excedeu 30 segundos, caso sim, cancela a operação
-        {
-            Serial.println("Tempo limite excedido. Cancelando operação.\n"); // Mensagem de cancelamento
-            aviso(); // Fecha a cancela, com avisos
-            timeout1 = true; // Define o timeout como verdadeiro
-            break; //encerra o while
-            
-        }
-        if (millis() - tempoEspera1 >= INTERVALO_MSG) //Função para que a mensagem não seja exibida repetidamente, mas sim a cada 3 segundos
-        {
-            Serial.println("Carro ainda posicionado na entrada...\n"); //Mensagem de aviso
-            tempoEspera1 = millis(); // Atualiza o tempo de espera para a próxima verificação
-        }
-    }
-
-    if (digitalRead(sensorEntrada) == false) //Se o carro saiu da entrada
-    {
-        Serial.println("Carro saiu da entrada.\n");
-    }
-
-}
-
-void SegurancaSaida() //Esta função, garante que a saida ocorra com segurança, realizando verificações para evitar a passagem consecutiva, e danificar o veiculo.
-{
-    timeout2 = false; // Reseta o timeout para a saída
-    tempoEspera2 = millis();
-    unsigned long tempoInicio1 = millis(); //Salva o tempo para a realização do timeout
-
-    while (digitalRead(sensorSaida) == false && timeout1 == false) //Enquanto o carro não sair
-    {
-        if (millis() - tempoInicio1 >= TIMEOUT_SAIDA) //evento de timeout
-        {
-            Serial.println("Tempo limite excedido. Cancelando operação.\n"); //Aviso de Cancelamento
-            aviso(); // Fecha a cancela, com avisos
-            timeout2 = true; // Define o timeout como verdadeiro
+    while (digitalRead(sensorEntrada)) {
+        if (millis() - tempoInicio >= TIMEOUT_ENTRADA) {
+            Serial.println("Tempo limite excedido. Cancelando operação.\n");
+            aviso();
+            timeout1 = true;
             break;
         }
-        if (millis() - tempoEspera2 >= INTERVALO_MSG) //para a mensagem não se repetir a cada ciclo de processamento
-        {
-            Serial.println("Carro ainda não saiu completamente...\n"); //Mensagem de feedback
+        if (millis() - tempoEspera1 >= INTERVALO_MSG) {
+            Serial.println("Carro ainda posicionado na entrada...\n");
+            tempoEspera1 = millis();
+        }
+    }
+
+    if (!digitalRead(sensorEntrada)) {
+        Serial.println("Carro saiu da entrada.\n");
+    }
+}
+
+/*
+    Função: SegurancaSaida
+    - Garante a segurança na saída, evitando passagem consecutiva e timeout.
+    - Fecha a cancela imediatamente em caso de fraude.
+    - Exibe mensagens de status enquanto o carro não sai completamente.
+*/
+void SegurancaSaida() {
+    timeout2 = false;
+    tempoEspera2 = millis();
+    unsigned long tempoInicio1 = millis();
+
+    while (!digitalRead(sensorSaida) && !timeout1) {
+        if (millis() - tempoInicio1 >= TIMEOUT_SAIDA) {
+            Serial.println("Tempo limite excedido. Cancelando operação.\n");
+            aviso();
+            timeout2 = true;
+            break;
+        }
+        if (millis() - tempoEspera2 >= INTERVALO_MSG) {
+            Serial.println("Carro ainda não saiu completamente...\n");
             tempoEspera2 = millis();
         }
     }
 
-    if (digitalRead(sensorEntrada) && digitalRead(sensorSaida)) //Caso tenha um carro na entrada e saída
-    {
+    if (digitalRead(sensorEntrada) && digitalRead(sensorSaida)) {
         Serial.println("Carro detectado na entrada e saída. Fechando cancela imediatamente para impedir passagem consecutiva sem emissão de ticket.\n");
         FecharCancela();
     }
-    else if (digitalRead(sensorSaida)) //Caso tenha um carro na saída
-    {
+    else if (digitalRead(sensorSaida)) {
         Serial.println("Carro detectado na saída. Fechando cancela dentro de 2 segundos.\n");
-        delay(DELAY_FECHAMENTO);  
+        delay(DELAY_FECHAMENTO);
         FecharCancela();
     }
 }
 
-void setup() //Inicia o setup do sistema
+void segurancaTicketCancela() 
 {
-    Serial.begin(115200); //Inicia o serial
+    while (digitalRead(ticketcancela) == HIGH) 
+    {
+        
+        if (digitalRead(ticketcancela) == HIGH && millis() - tempoEspera7 >= INTERVALO_MSG) 44
+        {
+        Serial.println("Ticket ainda não foi retirado. Por favor, retire o ticket para abrir a cancela.");
+        tempoEspera7 = millis();
+        }
 
-    //Define os pinos como entrada ou Saida
+    }
+    Serial.println("Ticket retirado. Cancela pode ser aberta.");
+}
+
+/*
+    Função: setup
+    - Inicializa o sistema, configura pinos, conecta ao Wi-Fi e inicializa o servo motor.
+    - Lê o contador de carros da EEPROM.
+    - Define o estado inicial da cancela (fechada).
+*/
+void setup() {
+    EEPROM.begin(EEPROM_SIZE); // Inicializa EEPROM
+    EEPROM.get(ADDR_CONTADOR, NumeroCarros); // Recupera contador salvo
+
+    Serial.begin(115200); // Inicializa comunicação serial
+
+    // Configuração dos pinos
     pinMode(botao, INPUT);
     pinMode(sensorEntrada, INPUT);
     pinMode(sensorSaida, INPUT);
+    pinMode(ticketcancela, INPUT);
     pinMode(ledVerde, OUTPUT);
     pinMode(ledVermelho, OUTPUT);
     pinMode(ledImpressao, OUTPUT);
     pinMode(buzzer, OUTPUT);
 
-    // Conexão com a rede Wi-Fi
+    // Conexão Wi-Fi
     WiFi.begin(ssid, password);
-    while ( WiFi.status() != WL_CONNECTED ) 
-    {
-    delay ( 500 );
-    Serial.print ( "." );
+    int a = 0;
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+        a++;
+        if (a > 20) {
+            break;
+        }
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi conectado!\n");
+        timeClient.begin();
     }
 
-    //inicia o tempo do cliente NTP
-    timeClient.begin();
-
-    //Servo motor
+    // Inicialização do servo motor
     ServoCancela.setPeriodHertz(50);
     ServoCancela.attach(servo, posicaoAberta, posicaoFechada);
     ServoCancela.writeMicroseconds(posicaoAberta); // Cancela aberta
@@ -292,78 +370,75 @@ void setup() //Inicia o setup do sistema
     ServoCancela.writeMicroseconds(posicaoFechada); // Cancela fechada
     delay(2000);
 
-    //Define o estado inicial como fechado
+    // Estado inicial: cancela fechada, LEDs configurados
     digitalWrite(ledImpressao, LOW);
     digitalWrite(ledVerde, LOW);
     digitalWrite(ledVermelho, HIGH);
     ServoCancela.writeMicroseconds(posicaoFechada);
     cancelaAberta = false;
-    
-    //Mensagem que o sistema iniciou, infelizmente nunca é vista, pois até abrir o monitor serial, isto já foi executado
+
     Serial.println("Sistema de Controle de Cancela Iniciado.");
 }
 
-void loop() //Função de loop continuo
-{
-    unsigned long atual = millis(); //Salva o tempo do loop atual
-    bool entradaAtiva = digitalRead(sensorEntrada); //Le o sensor de entrada
-    bool saidaAtiva = digitalRead(sensorSaida); //Le o sensor de saida
-    bool botaoPressionado = digitalRead(botao); //Le o botão de inicio
+/*
+    Função: loop
+    - Loop principal do sistema.
+    - Gerencia o fluxo de entrada de veículos, impressão de ticket, abertura/fechamento da cancela e mensagens de status.
+    - Realiza o reset diário do contador de carros.
+*/
+void loop() {   
+    atualizarDataHora();
+    bool entradaAtiva = digitalRead(sensorEntrada); // Leitura do sensor de entrada
+    bool botaoPressionado = digitalRead(botao);     // Leitura do botão
 
-    if (atual - horaultimoReset >= intervaloReset) //Reset a cada 24h do número de carros.
-    {
+    // Reset diário do contador de carros ao virar o dia
+    if (dataAtual != ultimaDataReset) {
         NumeroCarros = 0;
-        horaultimoReset = atual;
-        Serial.println("Contador de carros resetado após 24h.");
+        EEPROM.put(ADDR_CONTADOR, 0);
+        EEPROM.commit();
+        ultimaDataReset = dataAtual;
+        Serial.println("Contador de carros resetado: novo dia detectado.\n");
     }
 
-    if (entradaAtiva && botaoPressionado) //Se há carro na posição de entrada, e o botão foi pressionado, inicia a sequencia de ações
-    {
-        Serial.println("Botão pressionado.\n"); //Mensagem que o botão foi pressionado
-        
-        ImprimirTicket(); //Inicia a impressão do ticket
+    // Fluxo principal: carro presente e botão pressionado
+    if (entradaAtiva && botaoPressionado) {
+        Serial.println("Botão pressionado.\n");
+        ImprimirTicket();
+        segurancaTicketCancela(); // Aguarda a retirada do ticket
+        AbrirCancela();
+        SegurancaEntrada();
+        SegurancaSaida();
 
-        AbrirCancela(); //Abre a cancela
-
-        SegurancaEntrada(); //Chama a função de segurança da entrada
-
-        SegurancaSaida(); //Chama a função de segurança da saída, o fechamento da cancela é chamado internamente.
-
-        if (timeout1 == true || timeout2 == true) //Se algum timeout foi ativado, não incrementa o contador de carros
-        {
+        // Se houve timeout, desfaz o incremento do contador
+        if (timeout1 || timeout2) {
             Serial.println("Operação cancelada devido ao timeout. Contador de carros não incrementado.\n");
-            if (NumeroCarros > 0) 
-            {
-                NumeroCarros--;  //subtrai 1 do  contador de carros, pois não houve um registro válido
+            if (NumeroCarros > 0) {
+                NumeroCarros--;
             }
-        }
-        else //Se não houve timeout, segue normalmente
-        {
+        } else {
+            // Operação bem-sucedida, salva novo valor na EEPROM
+            EEPROM.put(ADDR_CONTADOR, NumeroCarros);
+            EEPROM.commit();
             Serial.println("Carro registrado com sucesso.\n");
-            Serial.println("Sistema pronto para novo veículo.\n"); //Mensagem que o sistema está pronto para uma nova execução
+            Serial.println("Sistema pronto para novo veículo.\n");
         }
-        
     }
-
-        else if (!entradaAtiva && botaoPressionado && millis() - tempoEspera >= INTERVALO_MSG) //Se não há carro na posição, mas o botão foi pressionado
-        {
-            Serial.println("Botão pressionado, mas não há carro na posição.");
-            Serial.println("Status atual cancela: " + String(cancelaAberta ? " Aberta." : " Fechada.") + "\n");
-            tempoEspera = millis();
-        }
-
-            else if (entradaAtiva && !botaoPressionado && millis() - tempoEspera3 >= INTERVALO_MSG) //Se há carro, mas o botão não foi pressionado ainda
-            {
-                Serial.println("há carro na posição, aguardando pressionamento do botão...");
-                Serial.println("Status atual cancela: " + String(cancelaAberta ? " Aberta." : " Fechada.") + "\n");
-                tempoEspera3 = millis();
-            }
-
-                else if (!entradaAtiva && !botaoPressionado && millis() - tempoEspera4 >= INTERVALO_MSG) //Se não há carro na posição, e o botão não foi pressionado
-                {
-                    Serial.println("Não há carro na posição, sistema em idle (Aguardando Veiculos)");
-                    Serial.println("Status atual cancela: " + String(cancelaAberta ? " Aberta." : " Fechada.") + "\n");
-                    tempoEspera4 = millis();
-                }
-
+    // Botão pressionado sem carro presente
+    else if (!entradaAtiva && botaoPressionado && millis() - tempoEspera >= INTERVALO_MSG) {
+        Serial.println("Botão pressionado, mas não há carro na posição.");
+        Serial.println("Status atual cancela: " + String(cancelaAberta ? " Aberta." : " Fechada.") + "\n");
+        tempoEspera = millis();
+    }
+    // Carro presente, aguardando botão
+    else if (entradaAtiva && !botaoPressionado && millis() - tempoEspera3 >= INTERVALO_MSG) {
+        Serial.println("há carro na posição, aguardando pressionamento do botão...");
+        Serial.println("Status atual cancela: " + String(cancelaAberta ? " Aberta." : " Fechada.") + "\n");
+        tempoEspera3 = millis();
+    }
+    // Sistema ocioso (idle)
+    else if (!entradaAtiva && !botaoPressionado && millis() - tempoEspera4 >= INTERVALO_MSG) {
+        Serial.println("Não há carro na posição, sistema em idle (Aguardando Veiculos)");
+        Serial.println("Status atual cancela: " + String(cancelaAberta ? " Aberta." : " Fechada.") + "\n");
+        tempoEspera4 = millis();
+    }
 }

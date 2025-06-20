@@ -109,7 +109,6 @@ const unsigned long delaybuzzer = 500;       // Duração de cada aviso sonoro (
 
 // Variáveis do contador de carros e controle de reset diário
 unsigned int NumeroCarros = 0;               // Contador de carros que entraram no estacionamento
-
 bool cancelaAberta = false;                  // Indica o estado atual da cancela
 
 // ==================== FUNÇÕES AUXILIARES ====================
@@ -312,7 +311,6 @@ void setup() {
 void loop() {
     atualizarDataHora(); // Atualiza data e hora atuais a cada ciclo
     bool entradaAtiva = digitalRead(sensorEntrada); // Lê o estado do sensor de entrada
-    bool saidaAtiva = digitalRead(sensorSaida);   // Lê o estado do sensor de saída
     bool botaoPressionado = digitalRead(botao);       // Lê o estado do botão de solicitação
 
     // Reset diário do contador de carros APENAS quando o dia virar

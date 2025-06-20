@@ -131,20 +131,43 @@ bool cancelaAberta = false; // Variável para controle do estado da cancela
 
 //Inicio das funções
 
-void atualizarDataHora() 
-{
-  timeClient.update(); // Atualiza o cliente NTP para obter a hora atual
+// Atualiza as variáveis dataAtual e horaAtual com base no NTP
+void atualizarDataHora() {
+    if (WiFi.status() == WL_CONNECTED) { // Verifica se o Wi-Fi está conectado
+        timeClient.update(); // Sincroniza o cliente NTP com o servidor
+        time_t rawTime = timeClient.getEpochTime(); // Obtém o tempo em formato Epoch (segundos desde 1970)
+        struct tm *timeInfo = localtime(&rawTime); // Converte o tempo Epoch para uma estrutura de tempo local
 
-  time_t rawTime = timeClient.getEpochTime(); // Obtém o tempo atual em segundos desde 1 de janeiro de 1970
-  struct tm * timeInfo = localtime(&rawTime); // Converte o tempo bruto para a estrutura tm, que contém informações sobre data e hora
+        char dataBuffer[11]; // Buffer para armazenar a string da data
+        char horaBuffer[9];  // Buffer para armazenar a string da hora
+        strftime(dataBuffer, sizeof(dataBuffer), "%d/%m/%Y", timeInfo); // Formata a data para o padrão DD/MM/AAAA
+        strftime(horaBuffer, sizeof(horaBuffer), "%H:%M:%S", timeInfo); // Formata a hora para o padrão HH:MM:SS
 
-  char dataBuffer[11]; // Formato: dd/mm/yyyy
-  char horaBuffer[9]; // Formato: hh:mm:ss
-  strftime(dataBuffer, sizeof(dataBuffer), "%d/%m/%Y", timeInfo); // Formata a data
-  strftime(horaBuffer, sizeof(horaBuffer), "%H:%M:%S", timeInfo); // Formata a hora
+        dataAtual = String(dataBuffer); // Converte o buffer de data para String
+        horaAtual = String(horaBuffer); // Converte o buffer de hora para String
 
-  dataAtual = String(dataBuffer); // Converte o buffer de data para String
-  horaAtual = String(horaBuffer); // Converte o buffer de hora para String
+        if (exec1 == false) { // Executa apenas uma vez no início para definir a data de referência
+            ultimaDataReset = dataAtual; // Define a data do último reset como a data atual
+            exec1 = true; // Impede que este bloco seja executado novamente
+        }
+    } else { // Caso não haja conexão Wi-Fi
+        // Usa a data e hora de compilação como fallback
+        struct tm timeInfo = {0}; // Inicializa a estrutura de tempo
+        strptime(__DATE__ " " __TIME__, "%b %d %Y %H:%M:%S", &timeInfo); // Converte a data/hora de compilação
+
+        char dataBuffer[11]; // Buffer para armazenar a string da data
+        char horaBuffer[9]; // Buffer para armazenar a string da hora
+        strftime(dataBuffer, sizeof(dataBuffer), "%d/%m/%Y", &timeInfo); // Formata a data
+        strftime(horaBuffer, sizeof(horaBuffer), "%H:%M:%S", &timeInfo); // Formata a hora
+
+        dataAtual = String(dataBuffer); // Converte o buffer de data para String
+        horaAtual = String(horaBuffer); // Converte o buffer de hora para String
+
+        if (exec1 == false) { // Executa apenas uma vez no início
+            ultimaDataReset = dataAtual; // Define a data de referência para o reset diário
+            exec1 = true; // Impede que este bloco seja executado novamente
+        }
+    }
 }
 
 void FecharCancela() // Esta função é usada para fechar a cancela
