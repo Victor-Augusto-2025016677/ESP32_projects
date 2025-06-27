@@ -62,6 +62,8 @@ COLOQUE O BOTÃO DE TICKET RETIRADO NO PINO 11 ANTES DE COMPILAR E PASSAR O PROJ
 #include <WiFiUdp.h>        // Biblioteca para comunicação UDP, necessária para o NTPClient
 #include <time.h>           // Biblioteca para manipulação de tempo
 #include <ESP32Servo.h>     // Biblioteca para controle de servo motor
+#include <EEPROM.h>
+#include <ESP32Servo.h> // Biblioteca para manipulação da memória EEPROM
 
 // ===================== Configurações de Wi-Fi =====================
 const char *ssid     = "Wifi2";      // Nome da rede Wi-Fi
@@ -69,6 +71,16 @@ const char *password = "01010101";   // Senha da rede Wi-Fi
 
 #define EEPROM_SIZE 4     // Espaço necessário para um int (4 bytes)
 #define ADDR_CONTADOR 0   // Endereço onde o contador será salvo
+
+Servo ServoCancela;
+const byte servo = 22;
+
+
+//Variaveis servo
+const int posicaoAberta = 500; // Posição do servo motor para a cancela aberta
+const int posicaoFechada = 1495; // Posição do servo motor para a cancela fechada
+
+
 
 /*
 Para que a ESP conecte-se a esta rede Wi-Fi, crie um hotspot com as seguintes configurações:
@@ -97,7 +109,7 @@ const byte ledVerde = 27;        // LED verde (cancela aberta)
 const byte ledVermelho = 26;     // LED vermelho (cancela fechada)
 const byte ledImpressao = 14;    // LED amarelo (impressão do ticket)
 const byte buzzer = 12;          // Buzzer para avisos sonoros
-const byte servo = 21;           // Pino do servo motor
+const byte servo = 22;           // Pino do servo motor
 const byte ticketcancela = 11; // Pino para indicar ticket cancelado
 
 // ===================== Variáveis do Servo Motor =====================
@@ -314,10 +326,10 @@ void segurancaTicketCancela()
     while (digitalRead(ticketcancela) == HIGH) 
     {
         
-        if (digitalRead(ticketcancela) == HIGH && millis() - tempoEspera7 >= INTERVALO_MSG) 44
+        if (digitalRead(ticketcancela) == HIGH && millis() - tempoEspera5 >= INTERVALO_MSG) 44
         {
         Serial.println("Ticket ainda não foi retirado. Por favor, retire o ticket para abrir a cancela.");
-        tempoEspera7 = millis();
+        tempoEspera5 = millis();
         }
 
     }
